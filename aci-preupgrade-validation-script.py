@@ -38,7 +38,7 @@ import sys
 import os
 import re
 
-SCRIPT_VERSION = "v4.0.0"
+SCRIPT_VERSION = "v4.0.1"
 DEFAULT_TIMEOUT = 600  # sec
 # result constants
 DONE = 'DONE'
@@ -1764,7 +1764,15 @@ def get_vpc_nodes():
     """ Returns list of VPC Node IDs; ['101', '102', etc...] """
     prints("Collecting VPC Node IDs...", end='')
     vpc_nodes = []
-    prot_pols = icurl('class', 'fabricNodePEp.json')
+    try:
+        prot_pols = icurl('class', 'fabricNodePEp.json')
+    except Exception as e:
+        # CSCws30568: expected for fabricNodePEp to return non-zero totalCount
+        # incorrectly for an empty response.
+        if str(e).startswith("API response empty with totalCount:"):
+            prot_pols = []
+        else:
+            raise e
     for vpc_node in prot_pols:
         vpc_nodes.append(vpc_node['fabricNodePEp']['attributes']['id'])
     vpc_nodes.sort()
@@ -5962,6 +5970,78 @@ def configpush_shard_check(tversion, **kwargs):
 
     return Result(result=result, headers=headers, data=data, recommended_action=recommended_action, doc_url=doc_url)
 
+
+@check_wrapper(check_title='APIC VMM inventory sync fault (F0132)')
+def apic_vmm_inventory_sync_faults_check(**kwargs):
+    result = PASS
+    headers = ['Fault', 'VMM Domain', 'Controller']
+    data = []
+    unformatted_headers = ["Fault", "Fault DN"]
+    unformatted_data = []
+    recommended_action = "Please look for Faults under VM and Host and fix them via VCenter, then manually re-trigger inventory sync on APIC"
+    doc_url = 'https://datacenter.github.io/ACI-Pre-Upgrade-Validation-Script/validations/#vmm-inventory-partially-synced'
+    vmm_regex = r'comp/prov-VMware/ctrlr-\[(?P<domain>.+?)\]-(?P<controller>.+?)/fault-F0132'
+    faultInsts = icurl('class', 'faultInst.json?query-target-filter=eq(faultInst.code,"F0132")')
+
+    for faultInst in faultInsts:
+        fc = faultInst['faultInst']['attributes']['code']
+        dn = faultInst['faultInst']['attributes']['dn']
+        desc = faultInst['faultInst']['attributes']['descr']
+        change_set = faultInst['faultInst']['attributes']['changeSet']
+
+        dn_array = re.search(vmm_regex, dn)
+        if dn_array and "partial-inv" in change_set:
+            data.append([fc, dn_array.group("domain"), dn_array.group("controller")])
+        elif "partial-inv" in change_set:
+            unformatted_data.append([fc, dn])
+
+    if data or unformatted_data:
+        result = MANUAL
+
+    return Result(
+        result=result,
+        headers=headers,
+        data=data,
+        unformatted_headers=unformatted_headers,
+        unformatted_data=unformatted_data,
+        doc_url=doc_url)
+
+
+@check_wrapper(check_title="M4/L4 missing db files in TS")
+def apic_m4_l4_db_snapshot_check(tversion, fabric_nodes, **kwargs):
+    result = MANUAL
+    headers = ["Node ID", "APIC Model", "Status"]
+    data = []
+    recommended_action = "Please contact TAC, requires the db_snapshot.sh to be modified"
+    doc_url = "https://datacenter.github.io/ACI-Pre-Upgrade-Validation-Script/validations/#apic-m4-l4-model-db-snapshot-script-issue"
+
+    # Check 1: Get APIC controllers from fabric_nodes and identify M4/L4 models
+    apics = [node for node in fabric_nodes if node["fabricNode"]["attributes"]["role"] == "controller"]
+    
+    if not apics:
+        return Result(result=ERROR, msg="No controllers found in fabricNode. Is the cluster healthy?", doc_url=doc_url)
+
+    # Identify affected APIC models (M4 or L4)
+    for apic in apics:
+        apic_model = apic['fabricNode']['attributes']['model']
+        node_id = apic['fabricNode']['attributes']['id']
+        
+        if "APIC-SERVER-M4" in apic_model or "APIC-SERVER-L4" in apic_model:
+            data.append([node_id, apic_model, "Affected"])
+
+    if not data:
+        result = NA
+        return Result(result=result, headers=headers, data=data, doc_url=doc_url)
+
+    # Check 2: Verify target version is affected
+    # Only applicable to 5.3.x releases older than 5.3(2f) or 6.0.x releases older than 6.0(9c)
+    # Not impacting 5.2, 4.2, 6.1 or any other major release
+    if not ((tversion.major_version == "5.3" and tversion.older_than("5.3(2f)")) or 
+            (tversion.major_version == "6.0" and tversion.older_than("6.0(9c)"))):
+        return Result(result=NA, msg=VER_NOT_AFFECTED)
+
+    return Result(result=result, headers=headers, data=data, recommended_action=recommended_action, doc_url=doc_url)
+
 # ---- Script Execution ----
 
 
@@ -6069,6 +6149,7 @@ class CheckManager:
         scalability_faults_check,
         fabric_port_down_check,
         equipment_disk_limits_exceeded,
+        apic_vmm_inventory_sync_faults_check,
 
         # Configurations
         vpc_paired_switches_check,
@@ -6122,6 +6203,7 @@ class CheckManager:
         standby_sup_sync_check,
         isis_database_byte_check,
         configpush_shard_check,
+        apic_m4_l4_db_snapshot_check,
 
     ]
     ssh_checks = [

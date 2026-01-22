@@ -68,7 +68,7 @@ Items                                         | Faults         | This Script    
 [L3 Port Config][f7]                          | F0467: port-configured-as-l2 | :white_check_mark: | :white_check_mark: 5.2(4d)
 [L2 Port Config][f8]                          | F0467: port-configured-as-l3 | :white_check_mark: | :white_check_mark: 5.2(4d)
 [Access (Untagged) Port Config][f9]           | F0467: native-or-untagged-encap-failure | :white_check_mark: | :no_entry_sign:
-[Encap Already in Use][f10]                   | F0467: encap-already-in-use | :white_check_mark: | :no_entry_sign: | :no_entry_sign:
+[Encap Already in Use][f10]                   | F0467: encap-already-in-use | :white_check_mark: | :no_entry_sign:
 [L3Out Subnets][f11]                          | F0467: prefix-entry-already-in-use | :white_check_mark: | :white_check_mark: 6.0(1g)
 [BD Subnets][f12]                             | F0469: duplicate-subnets-within-ctx | :white_check_mark: | :white_check_mark: 5.2(4d)
 [BD Subnets][f13]                             | F1425: subnet-overlap | :white_check_mark: | :white_check_mark: 5.2(4d)
@@ -79,7 +79,7 @@ Items                                         | Faults         | This Script    
 [Scalability (faults related to Capacity Dashboard)][f18] | TCA faults for eqptcapacityEntity | :white_check_mark: | :no_entry_sign:
 [Fabric Port Status][f19]                     | F1394: ethpm-if-port-down-fabric | :white_check_mark: | :no_entry_sign:
 [Equipment Disk Limits][f20]                  | F1820: 80% -minor<br>F1821: -major<br>F1822: -critical | :white_check_mark: | :no_entry_sign:
-
+[VMM Inventory Partially Synced][f21]         | F0132: comp-ctrlr-operational-issues | :white_check_mark: | :no_entry_sign:
 
 
 [f1]: #apic-disk-space-usage
@@ -102,7 +102,7 @@ Items                                         | Faults         | This Script    
 [f18]: #scalability-faults-related-to-capacity-dashboard
 [f19]: #fabric-port-status
 [f20]: #equipment-disk-limits
-
+[f21]: #vmm-inventory-partially-synced
 
 ### Configuration Checks
 
@@ -190,7 +190,8 @@ Items                                           | Defect       | This Script    
 [Observer Database Size][d25]                   | CSCvw45531   | :white_check_mark: | :no_entry_sign:
 [Stale pconsRA Object][d26]                     | CSCwp22212   | :warning:{title="Deprecated"} | :no_entry_sign:
 [ISIS DTEPs Byte Size][d27]                     | CSCwp15375   | :white_check_mark: | :no_entry_sign:
-[Policydist configpushShardCont Crash][d28]     | CSCwp95515   | :white_check_mark: | 
+[Policydist configpushShardCont Crash][d28]     | CSCwp95515   | :white_check_mark: |
+[APIC M4/L4 Model db_snapshot Script Issue][d29] | CSCwn62369   | :white_check_mark: | :no_entry_sign: 
 
 [d1]: #ep-announce-compatibility
 [d2]: #eventmgr-db-size-defect-susceptibility
@@ -220,6 +221,7 @@ Items                                           | Defect       | This Script    
 [d26]: #stale-pconsra-object
 [d27]: #isis-dteps-byte-size
 [d28]: #policydist-configpushshardcont-crash
+[d29]: #apic-m4l4-model-db_snapshot-script-issue
 
 
 ## General Check Details
@@ -1506,6 +1508,16 @@ To recover from this fault, try the following action
     userdom          : all
     ```
 
+### VMM Inventory Partially Synced
+
+This script checks for fault code F0132 with rule comp-ctrlr-operational-issues and change set `partial-inv`. This fault is raised when APICs report a partially synchronized inventory with vCenter servers.
+
+EPGs using the `immediate` or `on-demand` resolution immediacy (this is typical) rely on the VMM Inventory to determine VLAN programming. If the known inventory changes during an upgrade and the APIC is reporting its last sync to be partial, a VMM inventory resync response with inventory changes could result in VLANs being unexpectedly removed.
+
+EPGs using the `pre-provision` resolution immediacy do not rely on the VMM inventory for VLAN deployment and so unexpected inventory changes will not change vlan programmings.
+
+This check returns a `MANUAL` result as there are many reasons for a partial inventory sync to be reported. The goal is to ensure that the VMM inventory sync has fully completed before triggering the APIC upgrade to reduce any chance for unexpected inventory changes to occur.
+
 ## Configuration Check Details
 
 ### VPC-paired Leaf switches                       
@@ -2604,6 +2616,21 @@ Due to [CSCwp95515][59], upgrading to an affected version while having any `conf
 If any instances of `configpushShardCont` are flagged by this script, Cisco TAC must be contacted to identify and resolve the underlying issue before performing the upgrade.
 
 
+### M4/L4 Model missing db files in TS
+
+Due to the defect CSCwn62369, the db_snapshot.sh script on APIC-SERVER-M4 and APIC-SERVER-L4 models requires modification before upgrading to certain versions. This issue affects upgrades to versions earlier than 5.3(2f) in the 5.3 train or earlier than 6.0(9c) in the 6.0 train. The defect does not impact 5.2, 4.2, 6.1, or any other release trains.
+
+The script checks if:
+
+* The target APIC version is 5.3.x (but earlier than 5.3(2f)) or 6.0.x (but earlier than 6.0(9c))
+* Any APICs in the cluster are running APIC-SERVER-M4 or APIC-SERVER-L4 hardware models
+
+If both conditions are met, the db_snapshot.sh script must be modified by TAC before performing the upgrade to avoid potential issues with database snapshot operations.
+
+!!! important
+    If this check fails, please contact TAC before upgrading. The db_snapshot.sh script requires modification specific to M4/L4 hardware models.
+
+
 [0]: https://github.com/datacenter/ACI-Pre-Upgrade-Validation-Script
 [1]: https://www.cisco.com/c/dam/en/us/td/docs/Website/datacenter/apicmatrix/index.html
 [2]: https://www.cisco.com/c/en/us/support/switches/nexus-9000-series-switches/products-release-notes-list.html
@@ -2666,3 +2693,5 @@ If any instances of `configpushShardCont` are flagged by this script, Cisco TAC 
 [59]: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwp95515
 [60]: https://www.cisco.com/c/en/us/solutions/collateral/data-center-virtualization/application-centric-infrastructure/white-paper-c11-743951.html#Inter
 [61]: https://www.cisco.com/c/en/us/solutions/collateral/data-center-virtualization/application-centric-infrastructure/white-paper-c11-743951.html#EnablePolicyCompression
+[62]: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwn62369
+
