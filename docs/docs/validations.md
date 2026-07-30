@@ -206,6 +206,7 @@ Items                                           | Defect       | This Script    
 [WRED with Affected FM Models][d35]             | CSCwt50713   | :white_check_mark: | :no_entry_sign:
 [N9K-C93180YC-FX3 Switch Memory Less Than 32GB][d36] | CSCwm42741   | :white_check_mark: | :no_entry_sign:
 [Stale dbgacEpgSummaryTask Objects][d37]         | CSCwt69100   | :white_check_mark: | :no_entry_sign:
+[RouteEp Features with MSITE PBR Host Prefixes][d38] | CSCwn26910   | :white_check_mark: | :no_entry_sign:
 
 [d1]: #ep-announce-compatibility
 [d2]: #eventmgr-db-size-defect-susceptibility
@@ -244,6 +245,7 @@ Items                                           | Defect       | This Script    
 [d35]: #wred-with-affected-fm-models
 [d36]: #n9k-c93180yc-fx3-switch-memory-less-than-32gb
 [d37]: #stale-dbgacepgsummarytask-objects
+[d38]: #routeep-features-with-msite-pbr-host-prefixes
 
 ## General Check Details
 
@@ -2846,6 +2848,22 @@ Affected versions: 6.1(5e) and below, or 6.2(1g).
 Contact Cisco TAC for next steps. For more details, refer to the workaround in [CSCwt69100][75].
 
 
+### RouteEp Features with MSITE PBR Host Prefixes
+
+Due to defect [CSCwn26910][77], using RouteEp host-prefix features with MSITE PBR on the same host prefix is an invalid combination and can cause route endpoint programming issues.
+
+Invalid combinations are identified on host prefixes (`/32` for IPv4 or `/128` for IPv6) when one or more RouteEp-related features are present, including:
+
+- `learn-disable` (`ipDPLearning` disabled)
+- `anycast`
+- `MSNLB`
+- `routeEp reachability`
+
+This check evaluates stretched VRFs that use Redirect PBR through `vzAny` and flags conflicting host-prefix configurations.
+
+To avoid the issue, remove either MSITE PBR host-prefix usage or RouteEp host-prefix features (`learn-disable`, `anycast`, `MSNLB`, `routeEp reachability`) from the affected prefixes before proceeding.
+
+
 [0]: https://github.com/datacenter/ACI-Pre-Upgrade-Validation-Script
 [1]: https://www.cisco.com/c/dam/en/us/td/docs/Website/datacenter/apicmatrix/index.html
 [2]: https://www.cisco.com/c/en/us/support/switches/nexus-9000-series-switches/products-release-notes-list.html
@@ -2923,4 +2941,5 @@ Contact Cisco TAC for next steps. For more details, refer to the workaround in [
 [74]: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwm42741
 [75]: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwt69100
 [76]: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwt38698
+[77]: https://bst.cloudapps.cisco.com/bugsearch/bug/CSCwn26910
 

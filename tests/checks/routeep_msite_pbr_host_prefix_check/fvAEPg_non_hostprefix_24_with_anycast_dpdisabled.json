@@ -1,0 +1,27 @@
+[
+  {
+    "fvAEPg": {
+      "attributes": {
+        "dn": "uni/tn-common/ap-app1/epg-epg1",
+        "scope": "1001"
+      },
+      "children": [
+        {
+          "fvSubnet": {
+            "attributes": {
+              "ip": "10.10.10.0/24",
+              "ipDPLearning": "disabled"
+            },
+            "children": [
+              {
+                "fvEpAnycast": {
+                  "attributes": {}
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

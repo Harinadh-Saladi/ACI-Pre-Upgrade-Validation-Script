@@ -1,0 +1,12 @@
+[
+  {
+    "faultInst": {
+      "attributes": {
+        "code": "F4692",
+        "lc": "raised",
+        "dn": "uni/fabric/fault-F4692-test",
+        "descr": "Invalid RouteEp + MSITE PBR host-prefix combination"
+      }
+    }
+  }
+]

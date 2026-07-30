@@ -1,0 +1,24 @@
+[
+  {
+    "fvCtx": {
+      "attributes": {
+        "scope": "1001"
+      },
+      "children": [
+        {
+          "vzAny": {
+            "children": [
+              {
+                "vzRsAnyToCons": {
+                  "attributes": {
+                    "tDn": "uni/tn-common/brc-c1"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

@@ -6702,6 +6702,211 @@ def stale_dbgacEpgSummaryTask_check(tversion, **kwargs):
     return Result(result=result, headers=headers, data=data, recommended_action=recommended_action, doc_url=doc_url)
 
 
+@check_wrapper(check_title='RouteEp features with MSITE PBR host prefixes')
+def routeep_msite_pbr_host_prefix_check(tversion, cversion, **kwargs):
+    result = PASS
+    headers = ["VRF (Tn:VRF)", "EPG DN", "Host Prefix", "Incompatible RouteEp Features", "PBR Contract(s)"]
+    data = []
+    recommended_action = (
+        "Remove either MSITE PBR host-prefix usage or RouteEp host-prefix features "
+        "(learn-disable, anycast, MSNLB, routeEp reachability) from the affected prefixes."
+    )
+    doc_url = (
+        "https://datacenter.github.io/ACI-Pre-Upgrade-Validation-Script/validations/#routeep-features-with-msite-pbr-host-prefixes"
+
+    )
+
+    if not tversion:
+        return Result(result=MANUAL, msg=TVER_MISSING)
+
+    # Evaluate active F4692 fault only when current version is 6.1(4h)+ and
+    # target version is newer than 6.1(4h). For target 6.1(4h) or lower,
+    # skip fault checks and evaluate unsupported config.
+    if (
+        cversion
+        and tversion.newer_than("6.1(4h)")
+        and (cversion.same_as("6.1(4h)") or cversion.newer_than("6.1(4h)"))
+    ):
+        fault_headers = ["Fault", "Lifecycle", "Fault DN", "Description"]
+        fault_data = []
+        fault_filter = 'faultInst.json?query-target-filter=eq(faultInst.code,"F4692")'
+        faultInsts = icurl('class', fault_filter) or []
+        for faultInst in faultInsts:
+            if 'faultInst' not in faultInst:
+                continue
+            attrs = faultInst['faultInst']['attributes']
+            if 'lc' not in attrs or attrs['lc'] not in ['raised', 'soaking']:
+                continue
+            if 'code' not in attrs or 'dn' not in attrs or 'descr' not in attrs:
+                continue
+            fault_data.append([
+                attrs['code'],
+                attrs['lc'],
+                attrs['dn'],
+                attrs['descr'],
+            ])
+        if fault_data:
+            return Result(
+                result=FAIL_O,
+                headers=fault_headers,
+                data=fault_data,
+                recommended_action=recommended_action,
+                doc_url=doc_url,
+            )
+        return Result(result=PASS, msg='No active F4692 fault found for current version 6.1(4h)+', doc_url=doc_url)
+
+    msite_api = 'fvFabricExtConnP.json?rsp-subtree=children'
+    msite_mos = icurl('class', msite_api) or []
+    has_msite = False
+    for mo in msite_mos:
+        if 'fvFabricExtConnP' not in mo:
+            continue
+        extconnp = mo['fvFabricExtConnP']
+        for child in extconnp['children'] if 'children' in extconnp else []:
+            if 'fvSiteConnP' in child:
+                has_msite = True
+                break
+        if has_msite:
+            break
+    if not has_msite:
+        return Result(result=PASS, msg='No MSite deployment found', doc_url=doc_url)
+
+    graph_api = (
+        'vnsGraphInst.json?query-target-filter=eq(vnsGraphInst.configSt,"applied")'
+        '&rsp-subtree=children&rsp-subtree-class=vnsNodeInst&rsp-subtree-include=required'
+    )
+    graph_insts = icurl('class', graph_api) or []
+    pbr_contract_dns = set()
+    for gi in graph_insts:
+        if 'vnsGraphInst' not in gi:
+            continue
+        graph_inst = gi['vnsGraphInst']
+        if 'attributes' not in graph_inst or 'ctrctDn' not in graph_inst['attributes']:
+            continue
+        contract_dn = graph_inst['attributes']['ctrctDn']
+        for child in graph_inst['children'] if 'children' in graph_inst else []:
+            if 'vnsNodeInst' not in child:
+                continue
+            node_inst = child['vnsNodeInst']
+            if 'attributes' in node_inst and 'routingMode' in node_inst['attributes'] and node_inst['attributes']['routingMode'] == 'Redirect':
+                pbr_contract_dns.add(contract_dn)
+                break
+    if not pbr_contract_dns:
+        return Result(result=PASS, msg='No applied Redirect PBR contract found', doc_url=doc_url)
+
+    stretched_vrf_api = 'fvCtx.json?rsp-subtree=children&rsp-subtree-class=fvSiteAssociated&rsp-subtree-include=required'
+    stretched_vrf_mos = icurl('class', stretched_vrf_api) or []
+    stretched_scope_to_dn = {}
+    for entry in stretched_vrf_mos:
+        if 'fvCtx' not in entry:
+            continue
+        fvctx = entry['fvCtx']
+        if 'attributes' not in fvctx:
+            continue
+        attrs = fvctx['attributes']
+        if 'scope' not in attrs or 'dn' not in attrs:
+            continue
+        scope = attrs['scope']
+        vrf_dn = attrs['dn']
+        for child in fvctx['children'] if 'children' in fvctx else []:
+            if 'fvSiteAssociated' not in child:
+                continue
+            st_assoc = child['fvSiteAssociated']
+            if 'attributes' in st_assoc and 'rn' in st_assoc['attributes'] and st_assoc['attributes']['rn'] == 'stAsc':
+                stretched_scope_to_dn[scope] = vrf_dn
+                break
+    if not stretched_scope_to_dn:
+        return Result(result=PASS, msg='No stretched VRF found', doc_url=doc_url)
+
+    vzany_api = 'fvCtx.json?rsp-subtree=full&rsp-subtree-class=vzRsAnyToCons,vzRsAnyToProv'
+    vzany_mos = icurl('class', vzany_api) or []
+    vrf_scope_to_pbr_contracts = defaultdict(set)
+    for entry in vzany_mos:
+        if 'fvCtx' not in entry:
+            continue
+        fvctx = entry['fvCtx']
+        if 'attributes' not in fvctx or 'scope' not in fvctx['attributes']:
+            continue
+        scope = fvctx['attributes']['scope']
+        if scope not in stretched_scope_to_dn:
+            continue
+        for child in fvctx['children'] if 'children' in fvctx else []:
+            if 'vzAny' not in child:
+                continue
+            vzany = child['vzAny']
+            for vzany_child in vzany['children'] if 'children' in vzany else []:
+                if 'vzRsAnyToCons' in vzany_child:
+                    relation = vzany_child['vzRsAnyToCons']
+                elif 'vzRsAnyToProv' in vzany_child:
+                    relation = vzany_child['vzRsAnyToProv']
+                else:
+                    continue
+                if 'attributes' not in relation or 'tDn' not in relation['attributes']:
+                    continue
+                contract_dn = relation['attributes']['tDn']
+                if contract_dn in pbr_contract_dns:
+                    vrf_scope_to_pbr_contracts[scope].add(contract_dn)
+    if not vrf_scope_to_pbr_contracts:
+        return Result(result=PASS, msg='No stretched VRF uses Redirect PBR via vzAny', doc_url=doc_url)
+
+    epg_api = 'fvAEPg.json?rsp-subtree=full&rsp-subtree-class=fvSubnet,fvEpAnycast,fvEpNlb,fvEpReachability&rsp-subtree-include=required'
+    epgs = icurl('class', epg_api) or []
+
+    for epg_entry in epgs:
+        if 'fvAEPg' not in epg_entry:
+            continue
+        epg = epg_entry['fvAEPg']
+        if 'attributes' not in epg:
+            continue
+        epg_attrs = epg['attributes']
+        if 'dn' not in epg_attrs or 'scope' not in epg_attrs:
+            continue
+        epg_dn = epg_attrs['dn']
+        scope = epg_attrs['scope']
+        if scope not in vrf_scope_to_pbr_contracts:
+            continue
+
+        for child in epg['children'] if 'children' in epg else []:
+            if 'fvSubnet' not in child:
+                continue
+            subnet = child['fvSubnet']
+            if 'attributes' not in subnet or 'ip' not in subnet['attributes']:
+                continue
+            subnet_attrs = subnet['attributes']
+            subnet_ip = subnet_attrs['ip']
+            if not (subnet_ip.endswith('/32') or subnet_ip.endswith('/128')):
+                continue
+
+            features = []
+            if 'ipDPLearning' in subnet_attrs and subnet_attrs['ipDPLearning'] == 'disabled':
+                features.append('learn-disable')
+
+            for subnet_child in subnet['children'] if 'children' in subnet else []:
+                if 'fvEpAnycast' in subnet_child:
+                    features.append('anycast')
+                elif 'fvEpNlb' in subnet_child:
+                    features.append('MSNLB')
+                elif 'fvEpReachability' in subnet_child:
+                    features.append('routeEp')
+
+            if features:
+                vrf_dn = stretched_scope_to_dn[scope]
+                vrf_match = re.search(r'uni/tn-([^/]+)/ctx-([^/]+)', vrf_dn)
+                vrf_name = '{}:{}'.format(vrf_match.group(1), vrf_match.group(2)) if vrf_match else vrf_dn
+                data.append([
+                    vrf_name,
+                    epg_dn,
+                    subnet_ip,
+                    ', '.join(sorted(set(features))),
+                    ', '.join(sorted(vrf_scope_to_pbr_contracts[scope])),
+                ])
+
+    if data:
+        result = FAIL_O
+
+    return Result(result=result, headers=headers, data=data, recommended_action=recommended_action, doc_url=doc_url)
+
+
 # ---- Script Execution ----
 
 
@@ -6877,6 +7082,7 @@ class CheckManager:
         wred_affected_model_check,
         n9k_c93180yc_fx3_switch_memory_check,
         stale_dbgacEpgSummaryTask_check,
+        routeep_msite_pbr_host_prefix_check,
 
     ]
     ssh_checks = [

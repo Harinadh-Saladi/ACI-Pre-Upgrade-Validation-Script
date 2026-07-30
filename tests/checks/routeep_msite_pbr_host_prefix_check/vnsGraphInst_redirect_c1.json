@@ -1,0 +1,18 @@
+[
+  {
+    "vnsGraphInst": {
+      "attributes": {
+        "ctrctDn": "uni/tn-common/brc-c1"
+      },
+      "children": [
+        {
+          "vnsNodeInst": {
+            "attributes": {
+              "routingMode": "Redirect"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

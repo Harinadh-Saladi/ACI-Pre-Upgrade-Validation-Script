@@ -1,0 +1,19 @@
+[
+  {
+    "fvCtx": {
+      "attributes": {
+        "scope": "1001",
+        "dn": "uni/tn-common/ctx-vrf1"
+      },
+      "children": [
+        {
+          "fvSiteAssociated": {
+            "attributes": {
+              "rn": "stAsc"
+            }
+          }
+        }
+      ]
+    }
+  }
+]

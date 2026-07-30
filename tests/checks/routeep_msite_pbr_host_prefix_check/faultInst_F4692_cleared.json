@@ -1,0 +1,12 @@
+[
+  {
+    "faultInst": {
+      "attributes": {
+        "code": "F4692",
+        "lc": "cleared",
+        "dn": "uni/fabric/fault-F4692-test",
+        "descr": "Cleared fault"
+      }
+    }
+  }
+]

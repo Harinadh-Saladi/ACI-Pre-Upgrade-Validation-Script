@@ -1,0 +1,15 @@
+[
+  {
+    "fvFabricExtConnP": {
+      "children": [
+        {
+          "fvSiteConnP": {
+            "attributes": {
+              "dn": "uni/tn-common/fabricExtConnP-default/siteConnP-site1"
+            }
+          }
+        }
+      ]
+    }
+  }
+]
